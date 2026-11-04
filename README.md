@@ -6,7 +6,7 @@ Personal Spotify automation scripts and an optional web dashboard. The repositor
 
 - `scripts/liked_add/` mirrors saved tracks into a playlist.
 - `scripts/vaulted_add/` synchronizes the `_vaulted` playlist with tracks collected from owned playlists and saved tracks. Review the script before first use: it adds and removes playlist items.
-- `scripts/monthly_recommend/` previews monthly recommendations from listening and playlist data. It is read-only by default; `--write` explicitly creates or replaces its private recommendation playlist. See [Monthly recommendations](#monthly-recommendations).
+- `scripts/monthly_recommend/` previews monthly recommendations from listening and playlist data. It is read-only by default; `--write` creates or replaces a recommendation playlist with profile visibility off. This does not restrict access; use Spotify's client to make the playlist private. See [Monthly recommendations](#monthly-recommendations).
 - `backend/` provides Spotify OAuth, account-backed dashboard data, and API-triggered playlist actions.
 - `website/spotify-script-hub-main/` contains the React dashboard for account connection, library and listening views, script details, and run history.
 - `music-visualizer/` is a separate Windows-only desktop visualizer. It is not part of the web application.
@@ -67,7 +67,7 @@ Preview recommendations without changing Spotify:
 python scripts/monthly_recommend/monthly_recommend.py
 ```
 
-Preview mode is the default. To explicitly create or replace the private monthly playlist, pass `--write`; writes require `SPOTIFY_EXPECTED_USER_ID` to match the authenticated account. An optional `--month YYYY-MM` selects the month label; `--run-label TEXT` labels the local log output only. Last.fm is optional. The script uses Spotify listening and playlist data to build recommendations, so its requested read scopes should be reviewed before authorization.
+Preview mode is the default. To create or replace the monthly playlist, pass `--write`. The Web API profile-visibility flag does not restrict access; use Spotify's client to make the playlist private if access should be limited. Writes require `SPOTIFY_EXPECTED_USER_ID` to match the authenticated account. An optional `--month YYYY-MM` selects the month label; `--run-label TEXT` labels the local log output only. Last.fm is optional. The script uses Spotify listening and playlist data to build recommendations, so its requested read scopes should be reviewed before authorization.
 
 ## Run the API and web dashboard locally
 
@@ -128,9 +128,9 @@ The API may not support sign-in or dashboard data until service recovery is comp
 
 ## Optional monthly systemd runner
 
-`deploy/spotify-monthly-recommend.timer` schedules the private monthly recommendation write for 09:00 America/New_York on the first day of each month. The service expects this checkout at `/opt/spotify-toolkit`, a Python environment at `.venv` with `deploy/requirements-monthly.txt` installed, and its restricted environment file at `/opt/spotify-toolkit/.env`. That file must include the Spotify app credentials and the exact `SPOTIFY_EXPECTED_USER_ID`; keep it mode `0600`. The service runs as `ubuntu` and uses a host-local Spotipy OAuth cache in `/opt/spotify-toolkit/.cache`. The runner is noninteractive and fails if its host-local cache or required scopes are missing. Provision authentication on the target host; do not copy an OAuth cache from another machine.
+`deploy/spotify-monthly-recommend.timer` schedules the monthly recommendation write with profile visibility off for 09:00 America/New_York on the first day of each month. The service expects this checkout at `/opt/spotify-toolkit`, a Python environment at `.venv` with `deploy/requirements-monthly.txt` installed, and its restricted environment file at `/opt/spotify-toolkit/.env`. That file must include the Spotify app credentials and the exact `SPOTIFY_EXPECTED_USER_ID`; keep it mode `0600`. The service runs as `ubuntu` and uses a host-local Spotipy OAuth cache in `/opt/spotify-toolkit/.cache`. The runner is noninteractive and fails if its host-local cache or required scopes are missing. Provision authentication on the target host; do not copy an OAuth cache from another machine.
 
-The runner uses a 20-minute subprocess limit and nonblocking lock. It stores mode-`0600` state and a private JSON outbox under `/var/lib/spotify-toolkit/monthly-runner`. It records a month as successful only after the CLI reports a confirmed write; if playlist privacy or the write result cannot be verified, it fails closed and does not record success. Empty recommendations, missing seeds, timeouts, and other errors remain failures eligible for a later retry. A repeated successful month is skipped. `--dry-run` previews without state or playlist writes, and `--status` prints sanitized local state. A repository checkout does not install or activate the timer; host provisioning and activation are separate deployment steps.
+The runner uses a 20-minute subprocess limit and nonblocking lock. It stores mode-`0600` state and a private JSON outbox under `/var/lib/spotify-toolkit/monthly-runner`. It records a month as successful only after the CLI reports a confirmed write; if profile visibility or the write result cannot be verified, it fails closed and does not record success. Empty recommendations, missing seeds, timeouts, and other errors remain failures eligible for a later retry. A repeated successful month is skipped. `--dry-run` previews without state or playlist writes, and `--status` prints sanitized local state. A repository checkout does not install or activate the timer; host provisioning and activation are separate deployment steps.
 
 ## Windows music visualizer
 
@@ -142,7 +142,7 @@ The runner uses a 20-minute subprocess limit and nonblocking lock. It stores mod
 - OAuth cache files, local databases, logs, exports, and account-specific data should remain local and private.
 - The backend encrypts stored OAuth tokens using a key derived from `APP_SECRET_KEY`; this does not protect source secrets or replace secure host/database configuration.
 - Playlist scripts and authenticated API actions may read listening/library data and write playlist changes. Review requested OAuth scopes and the target playlist before granting access or running a write operation.
-- Recommendation playlists are private by default in the monthly recommender's explicit write mode.
+- The monthly recommender sets the Web API profile-visibility flag off; this does not restrict playlist access. Use Spotify's client to make the playlist private.
 
 ## Repository layout
 
