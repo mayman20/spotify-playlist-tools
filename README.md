@@ -117,20 +117,20 @@ npm test
 npm run build
 ```
 
-The repository's GitHub Actions workflows define CI checks and a GitHub Pages build/deploy workflow for pushes to `main`. A successful workflow configuration does not by itself establish that a hosted frontend or backend is currently deployed; configure the GitHub Pages environment and a hosted API separately. The backend Dockerfile builds an API image, but database persistence and environment secrets must be configured by the hosting platform.
+The repository's GitHub Actions workflows define CI checks and a GitHub Pages build/deploy workflow for pushes to `main`. The backend Dockerfile builds an API image, but backend deployment, database persistence, and environment secrets must be configured separately; a Pages workflow does not verify API health.
 
-## Hosted endpoints (verification pending)
+## Hosted endpoints — status as of 2026-11-04
 
-- **Planned frontend:** [mayman20.github.io/spotify-playlist-tools](https://mayman20.github.io/spotify-playlist-tools)
-- **Existing backend service:** [spotipy-website.onrender.com](https://spotipy-website.onrender.com)
+- **Frontend:** [mayman20.github.io/spotify-playlist-tools](https://mayman20.github.io/spotify-playlist-tools) — deployed and live.
+- **API:** [spotipy-website.onrender.com](https://spotipy-website.onrender.com) — currently unavailable while its database connection is checked.
 
-These are the intended frontend and API locations. This repository snapshot does not verify that the frontend is published, the backend is healthy, or Spotify OAuth is configured correctly for these hosts. Check the current deployment and OAuth redirect settings before using either endpoint.
+The API may not support sign-in or dashboard data until service recovery is complete. Check current availability and OAuth configuration before relying on it.
 
 ## Optional monthly systemd runner
 
 `deploy/spotify-monthly-recommend.timer` schedules the private monthly recommendation write for 09:00 America/New_York on the first day of each month. The service expects this checkout at `/opt/spotify-toolkit`, a Python environment at `.venv` with `deploy/requirements-monthly.txt` installed, and its restricted environment file at `/opt/spotify-toolkit/.env`. That file must include the Spotify app credentials and the exact `SPOTIFY_EXPECTED_USER_ID`; keep it mode `0600`. The service runs as `ubuntu` and uses a host-local Spotipy OAuth cache in `/opt/spotify-toolkit/.cache`. The runner is noninteractive and fails if its host-local cache or required scopes are missing. Provision authentication on the target host; do not copy an OAuth cache from another machine.
 
-The runner uses a 20-minute subprocess limit and nonblocking lock. It stores mode-`0600` state and a private JSON outbox under `/var/lib/spotify-toolkit/monthly-runner`. It records a month as successful only after the CLI reports a confirmed write; empty recommendations, missing seeds, timeouts, and errors remain failures eligible for a later retry. A repeated successful month is skipped. `--dry-run` previews without state or playlist writes, and `--status` prints sanitized local state. A repository checkout does not install or activate the timer; host provisioning and activation are separate deployment steps.
+The runner uses a 20-minute subprocess limit and nonblocking lock. It stores mode-`0600` state and a private JSON outbox under `/var/lib/spotify-toolkit/monthly-runner`. It records a month as successful only after the CLI reports a confirmed write; if playlist privacy or the write result cannot be verified, it fails closed and does not record success. Empty recommendations, missing seeds, timeouts, and other errors remain failures eligible for a later retry. A repeated successful month is skipped. `--dry-run` previews without state or playlist writes, and `--status` prints sanitized local state. A repository checkout does not install or activate the timer; host provisioning and activation are separate deployment steps.
 
 ## Windows music visualizer
 
