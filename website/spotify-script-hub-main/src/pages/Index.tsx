@@ -11,6 +11,8 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 
 export default function Index() {
   const loginUrl = getSpotifyLoginUrl();
+  const availableScripts = scripts.filter((script) => script.enabled !== false);
+  const otherFeatures = scripts.filter((script) => script.enabled === false);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -42,9 +44,10 @@ export default function Index() {
 
       <div className="border-t">
         <div className="max-w-5xl mx-auto px-6 py-16">
-          <h2 className="text-xl font-semibold mb-8 text-center">Available Automations</h2>
+          <h2 className="text-xl font-semibold mb-8 text-center">Toolkit Features</h2>
+          <h3 className="text-sm font-medium text-muted-foreground mb-4">Available scripts</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {scripts.map((script) => {
+            {availableScripts.map((script) => {
               const Icon = iconMap[script.icon] || Zap;
               return (
                 <Card key={script.id} className="hover:border-primary/30 transition-colors">
@@ -61,6 +64,41 @@ export default function Index() {
               );
             })}
           </div>
+
+          {otherFeatures.length > 0 && (
+            <>
+              <h3 className="text-sm font-medium text-muted-foreground mt-10 mb-4">Other features</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {otherFeatures.map((script) => {
+                  const Icon = iconMap[script.icon] || Zap;
+                  const isMonthly = script.id === "monthly-recommendations";
+                  return (
+                    <Card key={script.id}>
+                      <CardContent className="flex items-start gap-3 p-5">
+                        <div className="p-2 rounded-lg bg-muted shrink-0">
+                          <Icon className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-medium text-sm">{script.name}</p>
+                            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                              {isMonthly ? "CLI / scheduled" : "Planned"}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">{script.description}</p>
+                          {isMonthly && (
+                            <p className="text-xs text-muted-foreground mt-2">
+                              Run from the command line or use a scheduled run.
+                            </p>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
