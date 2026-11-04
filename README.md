@@ -1,102 +1,156 @@
-# Playlist Automations for Spotify
+# Spotify Playlist Tools
 
-Three small Python scripts for looking after a Spotify library: one mirrors Liked Songs into a playlist, one keeps a combined "vault" playlist in sync, and one builds monthly discovery playlists. They began as a personal tool and are shared here as a snapshot. This project is not affiliated with or endorsed by Spotify.
+Personal Spotify automation scripts and an optional web dashboard. The repository contains standalone Python scripts, a FastAPI API, and a React/Vite frontend. You can use the scripts without running the web application or configuring a database.
 
-## Workflows
+## Components
 
-### Liked Songs mirror
+- `scripts/liked_add/` mirrors saved tracks into a playlist.
+- `scripts/vaulted_add/` synchronizes the `_vaulted` playlist with tracks collected from owned playlists and saved tracks. Review the script before first use: it adds and removes playlist items.
+- `scripts/monthly_recommend/` previews monthly recommendations from listening and playlist data. It is read-only by default; `--write` explicitly creates or replaces its private recommendation playlist. See [Monthly recommendations](#monthly-recommendations).
+- `backend/` provides Spotify OAuth, account-backed dashboard data, and API-triggered playlist actions.
+- `website/spotify-script-hub-main/` contains the React dashboard for account connection, library and listening views, script details, and run history.
+- `music-visualizer/` is a separate Windows-only desktop visualizer. It is not part of the web application.
 
-`scripts/liked_add/liked_add.py`
+The backend supports SQLite by default and PostgreSQL through `DATABASE_URL` (including Supabase Postgres). A database is needed only when running the backend; it is not needed for standalone scripts.
 
-Mirrors your Liked Songs into a named playlist, newest first. It pages through the full list, finds the target playlist by name and replaces its contents in batches so the two match exactly.
+## Requirements
 
-### Vault sync
+- Python 3.12 or newer
+- Node.js 22 and npm to run or build the website
+- A Spotify Developer application for OAuth-based scripts and the backend
+- Optional: PostgreSQL for a persistent hosted backend
 
-`scripts/vaulted_add/vaulted_add.py`
+## Configure Spotify access
 
-Keeps an existing playlist you own named `_vaulted` (create it first) in step with your Liked Songs plus every other playlist you own, including any written by the other two scripts. Playlists with `-*` in their description are skipped as sources. Each run adds missing tracks and removes ones that no longer appear in any source. It never removes tracks from source playlists.
+Create a Spotify app in the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard). Add the exact redirect URI you configure below to the app's allowed redirect URIs. For the local backend, use `http://127.0.0.1:8000/auth/callback`; standalone scripts use Spotipy's local callback, normally `http://127.0.0.1:8080/callback`.
 
-> **`_vaulted` is a synchronizer, not an archive.** Any track that is neither liked nor in an included playlist is dropped from `_vaulted` on the next run, even one you added by hand.
+For standalone scripts, create a root `.env` file (never commit it):
 
-### Monthly discovery
+```dotenv
+SPOTIPY_CLIENT_ID=your-client-id
+SPOTIPY_CLIENT_SECRET=your-client-secret
+SPOTIPY_REDIRECT_URI=http://127.0.0.1:8080/callback
+# Required before monthly recommendation writes; use the intended Spotify account ID.
+SPOTIFY_EXPECTED_USER_ID=
+# Optional for Last.fm recommendation fallbacks
+LASTFM_API_KEY=
+```
 
-`scripts/monthly_recommend/monthly_recommend.py`
+The scripts cache OAuth tokens under `.cache/`; keep that directory private and out of version control. OAuth scopes vary by script. Approve only the scopes requested for the workflow you intend to use.
 
-Gathers candidate tracks from up to four sources:
+## Run standalone scripts
 
-- Co-occurrence in playlists named after an artist
-- Co-occurrence across multiple seed artists
-- Last.fm similar artists (optional)
-- Last.fm similar tracks (optional)
-
-The Last.fm sources need a Last.fm API key. Results go into separate monthly playlists that the script creates or overwrites. It excludes top/recent tracks plus tracks from an owned playlist tagged `[spotipy:vaulted_add]` in its description, falling back to Liked Songs if no tagged playlist is found. An untagged `_vaulted` playlist is not automatically recognized by the discovery script. These are heuristics, not a trained machine-learning recommender.
-
-## Architecture
-
-Each workflow is one Python script in its own folder under `scripts/`, run directly from the command line. This package has no server or web interface.
-
-- **Spotipy** calls the Spotify Web API and handles OAuth, caching tokens locally.
-- **python-dotenv** loads settings from a local `.env` file.
-- Python's **urllib.request** handles the optional Last.fm queries over HTTPS.
-- Defaults such as target playlist names live in the code; there are no command-line flags.
-
-## Before you run: these scripts modify your playlists
-
-Running a script makes real changes to your Spotify account, and there is no preview or dry-run mode.
-
-- `liked_add.py` can create or overwrite its target playlist; anything in it that isn't in Liked Songs is removed.
-- `vaulted_add.py` both adds tracks to and removes tracks from `_vaulted`.
-- `monthly_recommend.py` creates its monthly playlists or overwrites their contents.
-
-Check the playlist names defined in each script, and make a copy of any playlist you care about before the first run.
-
-## Requirements and setup
-
-- Python 3.10 or newer
-- A Spotify account and your own app registered in the Spotify Developer Dashboard, with a redirect URI configured. Access and redirect rules change over time, so check the [Spotify Web API documentation](https://developer.spotify.com/documentation/web-api) first.
-- Optional: a Last.fm API key for the Last.fm sources
+Install the Python dependencies from the repository root:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env           # Windows: copy .env.example .env
+# macOS/Linux
+source .venv/bin/activate
+# Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 ```
 
-Fill in `.env` with your own app's values, following `.env.example`. Keep `.env` and the local token cache private and out of version control.
+Run the existing playlist helpers from the repository root:
 
-## Usage
-
-From the repository root, with the virtual environment active, run one script by its path:
-
-```bash
-python scripts/liked_add/liked_add.py
+```powershell
+./liked.ps1
+./vaulted.ps1
 ```
 
-```bash
-python scripts/vaulted_add/vaulted_add.py
-```
+Windows batch launchers are also included (`liked.bat` and `vaulted.bat`). These helpers can modify Spotify playlists; read the script's target and behavior before authorizing Spotify access.
+
+### Monthly recommendations
+
+Preview recommendations without changing Spotify:
 
 ```bash
 python scripts/monthly_recommend/monthly_recommend.py
 ```
 
-The first run takes you through Spotify's authorization flow; later runs reuse the cached token.
+Preview mode is the default. To explicitly create or replace the private monthly playlist, pass `--write`; writes require `SPOTIFY_EXPECTED_USER_ID` to match the authenticated account. An optional `--month YYYY-MM` selects the month label; `--run-label TEXT` labels the local log output only. Last.fm is optional. The script uses Spotify listening and playlist data to build recommendations, so its requested read scopes should be reviewed before authorization.
 
-## Limitations
+## Run the API and web dashboard locally
 
-- These scripts haven't been tested against a live Spotify account while preparing this release.
-- Spotify's API policies and endpoint availability change, and new developer apps may not have access to everything these scripts use.
-- Recommendation quality varies with the playlist and Last.fm data available.
+### Backend
 
-## Offline checks
+Copy `backend/.env.example` to `backend/.env` and fill in the Spotify app values. Set `APP_SECRET_KEY` to a long random value and choose `FRONTEND_URL`, for example `http://localhost:5173`. For local development, set `DATABASE_URL=sqlite:///local_dev.db`; the example's `/var/lib/...` SQLite path is intended for a container with a mounted persistent directory. For PostgreSQL, set `DATABASE_URL` to a PostgreSQL connection URL. Keep the secret key stable: changing it prevents the backend from decrypting previously stored OAuth tokens.
 
 ```bash
-python -m unittest discover -s tests -v
+python -m venv .venv
+# Activate the environment as shown above, then:
+python -m pip install -r requirements.txt
+uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-The tests use fake clients and never authorize Spotify or modify a real playlist. This public snapshot includes bounded mirror retries, an ownership check before reusing a monthly playlist, and HTTPS for Last.fm requests. It is a curated copy of the original tools; private listening data, token caches and deployment files are excluded.
+The backend exposes `/healthz`, `/auth/login`, and `/auth/callback`, plus authenticated dashboard, library, and automation routes. API-triggered playlist actions can change the connected Spotify account; use them only after reviewing the selected action and target.
 
-## AI assistance
+### Frontend
 
-Claude and ChatGPT helped during development, including with writing and revising code, and this README was drafted with AI assistance. Not all of the code was written by hand.
+In a second terminal:
+
+```bash
+cd website/spotify-script-hub-main
+npm ci
+```
+
+Create `.env.local` in that directory:
+
+```dotenv
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
+Then start Vite:
+
+```bash
+npm run dev
+```
+
+The site uses browser-based Spotify OAuth through the configured backend. Do not put Spotify client secrets or backend session secrets in `VITE_*` variables: those values are bundled into client-side code.
+
+## Checks
+
+Run the frontend tests and production build from its directory:
+
+```bash
+cd website/spotify-script-hub-main
+npm test
+npm run build
+```
+
+The repository's GitHub Actions workflows define CI checks and a GitHub Pages build/deploy workflow for pushes to `main`. A successful workflow configuration does not by itself establish that a hosted frontend or backend is currently deployed; configure the GitHub Pages environment and a hosted API separately. The backend Dockerfile builds an API image, but database persistence and environment secrets must be configured by the hosting platform.
+
+## Hosted endpoints (verification pending)
+
+- **Planned frontend:** [mayman20.github.io/spotify-playlist-tools](https://mayman20.github.io/spotify-playlist-tools)
+- **Existing backend service:** [spotipy-website.onrender.com](https://spotipy-website.onrender.com)
+
+These are the intended frontend and API locations. This repository snapshot does not verify that the frontend is published, the backend is healthy, or Spotify OAuth is configured correctly for these hosts. Check the current deployment and OAuth redirect settings before using either endpoint.
+
+## Optional monthly systemd runner
+
+`deploy/spotify-monthly-recommend.timer` schedules the private monthly recommendation write for 09:00 America/New_York on the first day of each month. The service expects this checkout at `/opt/spotify-toolkit`, a Python environment at `.venv` with `deploy/requirements-monthly.txt` installed, and its restricted environment file at `/opt/spotify-toolkit/.env`. That file must include the Spotify app credentials and the exact `SPOTIFY_EXPECTED_USER_ID`; keep it mode `0600`. The service runs as `ubuntu` and uses a host-local Spotipy OAuth cache in `/opt/spotify-toolkit/.cache`. The runner is noninteractive and fails if its host-local cache or required scopes are missing. Provision authentication on the target host; do not copy an OAuth cache from another machine.
+
+The runner uses a 20-minute subprocess limit and nonblocking lock. It stores mode-`0600` state and a private JSON outbox under `/var/lib/spotify-toolkit/monthly-runner`. It records a month as successful only after the CLI reports a confirmed write; empty recommendations, missing seeds, timeouts, and errors remain failures eligible for a later retry. A repeated successful month is skipped. `--dry-run` previews without state or playlist writes, and `--status` prints sanitized local state. A repository checkout does not install or activate the timer; host provisioning and activation are separate deployment steps.
+
+## Windows music visualizer
+
+`music-visualizer/visualizer.py` captures Windows audio loopback and depends on Windows-specific audio support. It is not supported on macOS/Linux and does not use the API or web dashboard. On a supported Windows machine, install the visualizer's Python dependencies (`numpy`, `pygame`, and `pyaudiowpatch`) separately, then launch `music-visualizer/run.bat`.
+
+## Privacy and repository hygiene
+
+- Spotify tokens and application secrets belong in ignored `.env` files or a hosting provider's secret manager, never in source, frontend build variables, issues, or commits.
+- OAuth cache files, local databases, logs, exports, and account-specific data should remain local and private.
+- The backend encrypts stored OAuth tokens using a key derived from `APP_SECRET_KEY`; this does not protect source secrets or replace secure host/database configuration.
+- Playlist scripts and authenticated API actions may read listening/library data and write playlist changes. Review requested OAuth scopes and the target playlist before granting access or running a write operation.
+- Recommendation playlists are private by default in the monthly recommender's explicit write mode.
+
+## Repository layout
+
+```text
+backend/                              FastAPI API, OAuth, token storage, task logic
+scripts/                              Standalone Spotify workflows
+website/spotify-script-hub-main/      React + TypeScript + Vite frontend
+music-visualizer/                     Windows-only desktop visualizer
+.github/workflows/                    Checks and GitHub Pages workflow
+Dockerfile                             Backend container image
+```

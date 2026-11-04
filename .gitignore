@@ -1,12 +1,42 @@
-.env
-.env.*
-!.env.example
-.cache/
-logs/
-*.log
-*.log.*
-data/
-.venv/
 __pycache__/
 *.pyc
+.cache/
+scripts/**/cache/
+scripts/**/logs/
+scripts/**/output/
+# Uncomment to ignore all CSV exports
+# *.csv
+cookies.dat
+.env
+backend/.env
+local_dev.db
+localhost.pem
+localhost-key.pem
+mkcert.exe
+_backup_*/
+scripts/monthly_recommend/monthly_recommend_assets/.cache*
+scripts/monthly_recommend/monthly_recommend_assets/.ipynb_checkpoints/
+
+# OS / editor artifacts
 .DS_Store
+*.log
+
+# Browser/scraper auth state
+.chromium_profile/
+.chrome_profile/
+
+# Spotify OAuth token cache (never commit)
+.spotify_cache
+*.spotify_cache
+
+# conda env (use .venv instead)
+.conda/
+.venv/
+*.db
+*.db-wal
+*.db-shm
+.env.*
+!.env.example
+!**/.env.example
+node_modules/
+dist/

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Spotify monthly recommendations at 09:00 America/New_York on the first day of each month
+
+[Timer]
+OnCalendar=*-*-01 09:00:00 America/New_York
+Persistent=true
+AccuracySec=1min
+Unit=spotify-monthly-recommend.service
+
+[Install]
+WantedBy=timers.target
