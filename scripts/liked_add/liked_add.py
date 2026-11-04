@@ -31,6 +31,7 @@ import sys
 import time
 import shutil
 import logging
+import math
 from pathlib import Path
 from typing import List, Tuple
 
@@ -52,6 +53,7 @@ SCOPES = (
 
 DEFAULT_PLAYLIST_NAME = "Liked Songs Mirror"
 DEFAULT_PLAYLIST_PUBLIC = False
+RETRY_AFTER_MAX_SECONDS = 30
 
 logging.basicConfig(
     level=logging.INFO,
@@ -90,9 +92,16 @@ def backoff(call, *args, **kwargs):
             if e.http_status == 429:
                 retry_after = 2
                 try:
-                    retry_after = int(getattr(e, "headers", {}).get("Retry-After", 2))
+                    headers = getattr(e, "headers", {}) or {}
+                    retry_after = float(next(
+                        value for key, value in headers.items() if str(key).lower() == "retry-after"
+                    ))
                 except Exception:
                     pass
+                if not math.isfinite(retry_after) or retry_after < 0:
+                    retry_after = 2
+                if retry_after > RETRY_AFTER_MAX_SECONDS:
+                    raise
                 logging.warning("Rate limited. Retrying after %ss…", retry_after)
                 time.sleep(max(retry_after, 2))
             else:
@@ -200,7 +209,7 @@ def get_or_create_playlist(sp: spotipy.Spotify, user_id: str, name: str, public:
     try:
         backoff(sp.playlist_change_details, created["id"], description="")
     except Exception:
-        pass
+        logging.warning("Could not clear the playlist description for the new mirror.")
     return created["id"]
 
 def set_playlist_exact(sp: spotipy.Spotify, playlist_id: str, desired_ids: List[str]) -> None:

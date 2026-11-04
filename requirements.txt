@@ -1,2 +1,8 @@
+fastapi==0.115.8
+uvicorn[standard]==0.34.0
 spotipy==2.25.1
 python-dotenv==1.0.1
+httpx==0.28.1
+psycopg[binary]==3.2.13
+itsdangerous==2.2.0
+cryptography==44.0.3

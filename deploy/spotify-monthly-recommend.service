@@ -1,0 +1,33 @@
+[Unit]
+Description=Build the private Spotify monthly recommendation playlist
+Wants=network-online.target
+After=network-online.target
+ConditionFileIsExecutable=/opt/spotify-toolkit/.venv/bin/python
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/spotify-toolkit
+EnvironmentFile=/opt/spotify-toolkit/.env
+Environment=SPOTIFY_RUNNER_STATE_DIR=/var/lib/spotify-toolkit/monthly-runner
+Environment=PYTHONUNBUFFERED=1
+UMask=0077
+StateDirectory=spotify-toolkit
+StateDirectoryMode=0700
+ExecStart=/opt/spotify-toolkit/.venv/bin/python /opt/spotify-toolkit/deploy/run_monthly.py
+TimeoutStartSec=21min
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=-/opt/spotify-toolkit/.cache
+ReadWritePaths=/var/lib/spotify-toolkit

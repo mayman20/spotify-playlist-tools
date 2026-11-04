@@ -7,6 +7,8 @@ import ast
 import contextlib
 import io
 import logging
+import hashlib
+import math
 from collections import defaultdict
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,6 +30,10 @@ def functions(relative):
     selected = ast.Module(body=[ast.ImportFrom(module="__future__", names=[
         ast.alias(name="annotations")], level=0), *defs], type_ignores=[])
     ns = {"SpotifyException": APIError, "time": SimpleNamespace(sleep=Mock()),
+          "math": math, "RETRY_AFTER_MAX_SECONDS": 30,
+          "TARGET_TRACK_COUNT": 30, "MAX_PER_ARTIST": 2,
+          "PLAYLIST_DESCRIPTION": "Auto-generated monthly picks. [spotipy:monthly_recommend]",
+          "WRITE_CHUNK": 100, "hashlib": hashlib,
           "logging": Mock(), "log": Mock(), "defaultdict": defaultdict}
     exec(compile(ast.fix_missing_locations(selected), str(relative), "exec"), ns)
     ns.update(backoff=lambda fn, *a, **k: fn(*a, **k),
@@ -77,6 +83,22 @@ class MirrorTests(unittest.TestCase):
         self.assertEqual(fn.call_count, 6)
         self.assertEqual(self.n["time"].sleep.call_count, 5)
 
+    def test_excessive_retry_after_is_rethrown_without_sleeping(self):
+        error = APIError(429)
+        error.headers = {"Retry-After": "31"}
+        fn = Mock(side_effect=error)
+        with self.assertRaises(APIError):
+            self.n["real_backoff"](fn)
+        self.assertEqual(fn.call_count, 1)
+        self.n["time"].sleep.assert_not_called()
+
+    def test_connection_errors_retry_only_a_bounded_number_of_times(self):
+        fn = Mock(side_effect=ConnectionError("offline"))
+        with self.assertRaises(ConnectionError):
+            self.n["real_backoff"](fn)
+        self.assertEqual(fn.call_count, 6)
+        self.assertEqual(self.n["time"].sleep.call_count, 5)
+
     def test_programming_error_is_not_retried(self):
         fn = Mock(side_effect=ValueError("bad input"))
         with self.assertRaises(ValueError):
@@ -95,32 +117,47 @@ class MonthlyTests(unittest.TestCase):
             {"name": "Monthly", "id": "foreign", "owner": {"id": "other"}}], "next": "next"}
         sp.next.return_value = {"items": [
             {"name": "Monthly", "id": "mine", "owner": {"id": "me"}}], "next": None}
-        self.assertEqual(self.n["find_or_create_playlist"](sp, "me", "Monthly"), "mine")
-        sp.user_playlist_create.assert_not_called()
+        sp.current_user_playlists.return_value = {"items": [
+            {"name": "Monthly", "id": "foreign", "owner": {"id": "other"},
+             "description": ""}], "next": "next"}
+        sp.next.return_value = {"items": [
+            {"name": "Monthly", "id": "mine", "owner": {"id": "me"},
+             "description": "Auto-generated monthly picks. [spotipy:monthly_recommend]",
+             "collaborative": False}], "next": None}
+        self.assertEqual(self.n["find_playlist"](sp, "me", "Monthly"), "mine")
 
     def test_foreign_name_collision_creates_owned_private_target(self):
         sp = Mock()
-        sp.current_user_playlists.return_value = {"items": [
-            {"name": "Monthly", "id": "foreign", "owner": {"id": "other"}}], "next": None}
-        sp.user_playlist_create.return_value = {"id": "new"}
-        self.assertEqual(self.n["find_or_create_playlist"](sp, "me", "Monthly"), "new")
-        self.assertEqual(sp.user_playlist_create.call_args.kwargs["public"], False)
+        sp._post.return_value = {"id": "new"}
+        self.assertEqual(self.n["create_playlist"](sp, "Monthly"), "new")
+        payload = sp._post.call_args.kwargs["payload"]
+        self.assertFalse(payload["public"])
+        self.assertIn("[spotipy:monthly_recommend]", payload["description"])
 
-    def test_selection_filters_library_popularity_and_artist_cap(self):
+    def test_selection_excludes_library_tracks_and_respects_artist_cap(self):
         def track(tid, artist="one", pop=45):
-            return dict(id=tid, artist_id=artist, popularity=pop, artist_score=1,
+            return dict(id=tid, artist_id=artist, artist_ids=set(), popularity=pop, score=1,
+                        lane="Current mix", lane_weight=1.0,
                         uri="spotify:track:"+tid, name=tid, artist_name=artist)
         candidates = [track("known"), track("a"), track("b"), track("c"),
                       track("low", "two", 1), track("high", "two", 99), track("d", "two")]
-        self.assertEqual(self.n["select_tracks"](candidates, {"known"}),
-                         ["spotify:track:a", "spotify:track:b", "spotify:track:d"])
+        result = self.n["select_tracks"](candidates, {"known"})
+        picks = result["picks"]
+        self.assertNotIn("spotify:track:known", {p["uri"] for p in picks})
+        counts = {}
+        for pick in picks:
+            counts[pick["artist_id"]] = counts.get(pick["artist_id"], 0) + 1
+        self.assertTrue(all(count <= 2 for count in counts.values()))
+        self.assertEqual(len(picks), 4)
 
     def test_monthly_overwrite_batches_in_order(self):
         sp = Mock()
         tracks = [str(i) for i in range(204)]
-        self.n["overwrite_playlist"](sp, "target", tracks)
-        sp.playlist_replace_items.assert_called_once_with("target", tracks[:100])
-        self.assertEqual([c.args[1] for c in sp.playlist_add_items.call_args_list],
+        sp._put.return_value = {"snapshot_id": "first"}
+        sp._post.return_value = {"snapshot_id": "next"}
+        self.n["write_playlist"](sp, "target", tracks)
+        sp._put.assert_called_once_with("playlists/target/items", payload={"uris": tracks[:100]})
+        self.assertEqual([c.kwargs["payload"]["uris"] for c in sp._post.call_args_list],
                          [tracks[100:200], tracks[200:]])
 
 
@@ -145,7 +182,9 @@ class VaultTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.n["add_tracks_to_existing_playlist"]("_vaulted")
         reader.assert_called_once_with("owned")
-        self.assertEqual(set(self.sp.playlist_add_items.call_args.args[1]), {"add", "liked"})
+        added = self.sp.playlist_add_items.call_args.args[1]
+        self.assertEqual(set(added), {"add", "liked"})
+        self.assertEqual(len(added), 2)
         self.sp.playlist_remove_all_occurrences_of_items.assert_called_once_with("target", ["obsolete"])
 
     def test_missing_owned_target_does_not_write(self):
