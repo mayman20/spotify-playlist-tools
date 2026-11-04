@@ -839,8 +839,26 @@ def get_stranger_client():
 
 
 def make_private_and_verify(sp, user_id: str, playlist_id: str, stranger_client=None) -> None:
-    """Set private, then verify the playlist is absent from the public profile view."""
+    """Set private and verify owner, API privacy fields, and public-profile absence."""
     sp_call(sp._put, f"playlists/{playlist_id}", payload={"public": False})
+    try:
+        details = sp_call(
+            sp._get, f"playlists/{playlist_id}",
+            fields="public,collaborative,owner(id)",
+        )
+        if (not isinstance(details, dict)
+                or (details.get("owner") or {}).get("id") != user_id
+                or details.get("public") is not False
+                or details.get("collaborative") is not False):
+            raise RecommendError(
+                "Spotify did not confirm the owned playlist is private and non-collaborative; "
+                "no tracks were changed.")
+    except RecommendError:
+        raise
+    except Exception as exc:
+        raise RecommendError(
+            f"Could not verify playlist privacy ({describe_error(exc)}); no tracks were changed.") from exc
+
     stranger = stranger_client or get_stranger_client()
     try:
         for playlist in paged(stranger, sp_call(stranger.user_playlists, user_id, limit=50)):

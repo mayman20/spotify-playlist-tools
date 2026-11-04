@@ -72,7 +72,7 @@ class FakeSp:
                  albums=None, album_tracks=None, search_map=None, playlist_search=None,
                  playlist_contents=None, fail_put=False, fail_post_at=None,
                  public_ids=None, fail_privacy_demotion=False, fail_privacy_verification=False,
-                 recent_error=None):
+                 hide_from_public_listing=False, recent_error=None):
         self.top = top if top is not None else [trk(1, "seed")]
         self.recent = recent or []
         self.saved = saved or []
@@ -86,6 +86,7 @@ class FakeSp:
         self.public_ids = set(public_ids or [])
         self.fail_privacy_demotion = fail_privacy_demotion
         self.fail_privacy_verification = fail_privacy_verification
+        self.hide_from_public_listing = hide_from_public_listing
         self.recent_error = recent_error
         self.recent_calls = 0
         self.privacy_updates = []
@@ -116,7 +117,8 @@ class FakeSp:
     def user_playlists(self, user, limit):
         if self.fail_privacy_verification:
             raise ApiError(503, "verification unavailable")
-        return {"items": [{"id": pid} for pid in sorted(self.public_ids)]}
+        visible = set() if self.hide_from_public_listing else self.public_ids
+        return {"items": [{"id": pid} for pid in sorted(visible)]}
 
     def artist_albums(self, aid, album_type, limit):
         return {"items": self.albums.get(aid, [])}
@@ -155,6 +157,10 @@ class FakeSp:
 
     def _get(self, path, **kw):
         playlist_id = path.split("/")[1] if path.startswith("playlists/") else ""
+        if path.startswith("playlists/") and not path.endswith("/items"):
+            return {"owner": {"id": TEST_OWNER_ID},
+                    "public": playlist_id in self.public_ids,
+                    "collaborative": False}
         return {"items": self.playlist_contents.get(playlist_id, [])}
 
 
@@ -380,6 +386,16 @@ class PlaylistTests(OfflineTestCase):
             mr.ensure_and_write(unverifiable, TEST_OWNER_ID, existing["name"], ["u1"],
                                 stranger_client=unverifiable)
         self.assertFalse(unverifiable.puts or unverifiable.posts)
+
+    def test_public_detail_blocks_write_even_if_public_profile_list_hides_playlist(self):
+        existing = {"id": "old", "name": "Monthly Recs 2026-11", "owner": {"id": TEST_OWNER_ID},
+                    "description": mr.PLAYLIST_DESCRIPTION}
+        sp = FakeSp(playlists=[existing], public_ids={"old"}, fail_privacy_demotion=True,
+                    hide_from_public_listing=True)
+        with self.assertRaisesRegex(mr.RecommendError, "did not confirm.*private"):
+            mr.ensure_and_write(sp, TEST_OWNER_ID, existing["name"], ["u1"],
+                                stranger_client=sp)
+        self.assertFalse(sp.puts or sp.posts)
 
     def test_batches_writes_and_propagates_append_failure(self):
         sp = FakeSp()
